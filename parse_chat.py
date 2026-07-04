@@ -116,8 +116,9 @@ def apply_overrides(products, overrides):
     return products
 
 
-def load_rename_map():
+def load_existing_prices_and_renames():
     rename_map = {}
+    price_map = {}
     if os.path.exists(output_json):
         try:
             with open(output_json, "r", encoding="utf-8") as f:
@@ -126,12 +127,22 @@ def load_rename_map():
                     for item in data:
                         filenames = item.get("filenames", [])
                         orig_filenames = item.get("original_filenames", [])
+                        desc = item.get("description", "")
+                        price = item.get("price", 0)
+                        
+                        # Mapear nombres de archivos
                         for idx, fn in enumerate(filenames):
                             orig_fn = orig_filenames[idx] if idx < len(orig_filenames) else fn
                             rename_map[orig_fn] = fn
+                            
+                        # Mapear precio por descripción
+                        if desc:
+                            clean_key = " ".join(desc.lower().split())
+                            price_map[clean_key] = price
         except Exception as e:
-            print(f"Advertencia: No se pudo leer catalogo.json para el mapa de renombres: {e}")
-    return rename_map
+            print(f"Advertencia: No se pudo leer catalogo.json para el mapa de precios/renombres: {e}")
+    return rename_map, price_map
+
 
 
 def parse_chat():
@@ -151,10 +162,13 @@ def parse_chat():
         print(f"Error: No se encontraron archivos .txt de chat en: {chat_source_root}")
         return
 
-    # Cargar mapa de archivos ya renombrados anteriormente para mantener la consistencia
-    rename_map = load_rename_map()
+    # Cargar mapa de archivos ya renombrados y precios existentes para mantener la consistencia
+    rename_map, price_map = load_existing_prices_and_renames()
     if rename_map:
         print(f"Cargado mapa de renombres previos con {len(rename_map)} asociaciones.")
+    if price_map:
+        print(f"Cargado mapa de precios previos con {len(price_map)} registros.")
+
 
     pattern = re.compile(r"^\d{1,2}/\d{1,2}/\d{4},\s\d{1,2}:\d{2}\s-\s([^:]+):\s\u200e?([^\(]+)\s\(archivo adjunto\)")
 
@@ -249,7 +263,8 @@ def parse_chat():
                     "is_unknown": is_unknown,
                     "images": [image_path],
                     "filenames": [actual_filename],
-                    "original_filenames": [filename]
+                    "original_filenames": [filename],
+                    "price": price_map.get(clean_key, 0) # Conservar precio si ya existía
                 }
             else:
                 # Agrupar múltiples fotos en el mismo producto

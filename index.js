@@ -11,17 +11,13 @@ document.addEventListener('DOMContentLoaded', () => {
         showEditMode: true
     };
 
-    // Helper para formatear nombres de archivo en la UI
-    function formatDisplayFilename(filename, productId) {
-        if (!filename) return '';
-        const isWhatsapp = /^IMG-\d{8}-WA\d{4}\.(jpg|jpeg|png)$/i.test(filename);
-        if (isWhatsapp) {
-            return `Ref: #${productId}`;
-        }
-        let nameWithoutExt = filename.substring(0, filename.lastIndexOf('.')) || filename;
-        let cleanName = nameWithoutExt.replace(/-/g, ' ');
-        cleanName = cleanName.replace(/\s(\d+)$/, ' · foto $1');
-        return `Ref: ${cleanName.charAt(0).toUpperCase() + cleanName.slice(1)}`;
+    // Helper para limpiar cadenas (remover acentos y pasar a minúsculas)
+    function cleanString(str) {
+        if (!str) return '';
+        return str
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "");
     }
 
 
@@ -36,6 +32,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentLightboxProduct = null;
     let currentLightboxImageIndex = 0;
+
+    let isAdmin = localStorage.getItem('supermotos_isAdmin') === 'true';
+    let wizardFilteredProducts = [];
+    let wizardCurrentIndex = 0;
+
 
     // ---- ELEMENTOS DEL DOM ----
     const productsContainer = document.getElementById('products-container');
@@ -93,6 +94,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             allProducts = await response.json();
 
+            // Cargar borradores locales de precios si existen
+            const draft = localStorage.getItem('supermotos_catalog_draft');
+            if (draft) {
+                try {
+                    const draftProducts = JSON.parse(draft);
+                    draftProducts.forEach(dp => {
+                        const p = allProducts.find(prod => prod.id === dp.id);
+                        if (p && dp.price !== undefined) {
+                            p.price = dp.price;
+                        }
+                    });
+                } catch(e) {
+                    console.error("Error al cargar borrador de precios:", e);
+                }
+            }
+
             loadUserOverrides();
             applyUserOverrides();
 
@@ -101,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             loadCartFromLocalStorage();
             setupCategories();
+            checkAdminState();
             filterAndRender();
         } catch (error) {
             console.error('Error al cargar catálogo:', error);
@@ -212,12 +230,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            filteredProducts = filteredProducts.filter(p =>
-                p.description.toLowerCase().includes(query) ||
-                p.filenames.some(f => f.toLowerCase().includes(query)) ||
-                (p.category || '').toLowerCase().includes(query)
-            );
+            const queryWords = cleanString(searchQuery).split(/\s+/).filter(Boolean);
+            filteredProducts = filteredProducts.filter(p => {
+                const textToSearch = cleanString(
+                    p.description + " " + (p.category || "") + " " + (p.filenames || []).join(" ")
+                );
+                return queryWords.every(word => textToSearch.includes(word));
+            });
         }
 
         resultsFilteredCount.textContent = filteredProducts.length;
@@ -309,12 +328,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             }
 
-            const editBtn = CFG.showEditMode
+            const editBtn = isAdmin
                 ? `<button class="edit-card-btn" title="Editar / Eliminar">&#9998;</button>`
                 : '';
             const unknownBadge = product.is_unknown
                 ? `<span class="unknown-badge" title="Producto sin descripción en el chat">&iquest;?</span>`
                 : '';
+
+            const priceHtml = product.price && product.price > 0 
+                ? `<p class="product-price">$ ${product.price.toLocaleString('es-CO')}</p>` 
+                : `<p class="product-price-empty">Precio a convenir</p>`;
 
             card.innerHTML = `
                 ${imageHtml}
@@ -324,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="card-content">
                     <div class="product-info">
                         <h3 class="product-name" title="${product.description}">${product.description}</h3>
-                        <p class="product-meta-text">${formatDisplayFilename(mainFilename, product.id)}</p>
+                        ${priceHtml}
                     </div>
                     <div class="card-actions">
                         <button class="add-to-cart-btn">
@@ -404,10 +427,16 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             cartFooter.style.display = 'flex';
             cartItemsContainer.innerHTML = '';
+            
+            let totalCartPrice = 0;
 
             selectedProductIds.forEach(id => {
                 const product = allProducts.find(p => p.id === id);
                 if (product) {
+                    if (product.price && product.price > 0) {
+                        totalCartPrice += product.price;
+                    }
+
                     const item = document.createElement('div');
                     item.className = 'cart-item';
 
@@ -423,11 +452,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         thumbHtml = `<img class="cart-item-img" src="${mainImage}" alt="${product.description}">`;
                     }
 
+                    const priceText = product.price && product.price > 0 
+                        ? `$ ${product.price.toLocaleString('es-CO')}` 
+                        : 'A convenir';
+
                     item.innerHTML = `
                         ${thumbHtml}
                         <div class="cart-item-info">
                             <h4 class="cart-item-name">${product.description}</h4>
-                            <p class="cart-item-meta">${product.category} | ${formatDisplayFilename(mainFilename, product.id)}</p>
+                            <p class="cart-item-meta">${product.category} | ${priceText}</p>
                         </div>
                         <button class="remove-cart-item" title="Remover">&times;</button>
                     `;
@@ -444,6 +477,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     cartItemsContainer.appendChild(item);
                 }
             });
+
+            // Actualizar total en el pie del carrito
+            const totalValEl = document.getElementById('cart-total-val');
+            if (totalValEl) {
+                totalValEl.textContent = `$ ${totalCartPrice.toLocaleString('es-CO')}`;
+            }
         }
     }
 
@@ -549,11 +588,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const total = images.length;
         if (total > 1) {
-            lightboxFilename.innerHTML = `${formatDisplayFilename(filenames[currentLightboxImageIndex], currentLightboxProduct.id)} <br> <span class="gallery-counter">Foto ${currentLightboxImageIndex + 1} de ${total}</span>`;
+            lightboxFilename.innerHTML = `<span class="gallery-counter">Foto ${currentLightboxImageIndex + 1} de ${total}</span>`;
             btnPrev.style.display = 'block';
             btnNext.style.display = 'block';
         } else {
-            lightboxFilename.textContent = formatDisplayFilename(filenames[currentLightboxImageIndex], currentLightboxProduct.id);
+            lightboxFilename.textContent = '';
             btnPrev.style.display = 'none';
             btnNext.style.display = 'none';
         }
@@ -643,16 +682,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let message = `*${CFG.whatsappHeaderMessage}*\n\n`;
         let counter = 1;
+        let totalPrice = 0;
 
         selectedProductIds.forEach(id => {
             const p = allProducts.find(prod => prod.id === id);
             if (p) {
                 const filename = p.filenames[0];
-                message += `${counter}. *${p.description}* (Ref: _${filename}_)\n`;
+                const priceText = p.price && p.price > 0 ? ` - *$ ${p.price.toLocaleString('es-CO')}*` : ' - (A convenir)';
+                message += `${counter}. *${p.description}*${priceText}\n`;
+                if (p.price && p.price > 0) {
+                    totalPrice += p.price;
+                }
                 counter++;
             }
         });
 
+        if (totalPrice > 0) {
+            message += `\n*Total aproximado:* *$ ${totalPrice.toLocaleString('es-CO')}*\n`;
+        }
         message += `\n*Total de repuestos:* ${selectedProductIds.size} unidades.\n`;
         message += CFG.whatsappFooterMessage;
 
@@ -670,5 +717,329 @@ document.addEventListener('DOMContentLoaded', () => {
         window.print();
     });
 
+    // ---- 9. MODO ADMINISTRADOR (LOGIN Y ASISTENTE) ----
+    const btnAdminAccess = document.getElementById('btn-admin-access');
+    const adminLoginModal = document.getElementById('admin-login-modal');
+    const adminPinInput = document.getElementById('admin-pin-input');
+    const btnAdminCancel = document.getElementById('btn-admin-login-cancel');
+    const btnAdminConfirm = document.getElementById('btn-admin-login-confirm');
+
+    btnAdminAccess.addEventListener('click', () => {
+        if (isAdmin) {
+            return;
+        }
+        adminPinInput.value = '';
+        adminLoginModal.style.display = "flex";
+        setTimeout(() => adminPinInput.focus(), 100);
+    });
+
+    btnAdminCancel.addEventListener('click', () => {
+        adminLoginModal.style.display = "none";
+    });
+
+    btnAdminConfirm.addEventListener('click', () => {
+        const pin = adminPinInput.value.trim();
+        if (pin === "1234") {
+            isAdmin = true;
+            localStorage.setItem('supermotos_isAdmin', 'true');
+            adminLoginModal.style.display = "none";
+            checkAdminState();
+            filterAndRender();
+        } else {
+            alert("PIN de seguridad incorrecto.");
+            adminPinInput.value = '';
+            adminPinInput.focus();
+        }
+    });
+
+    adminPinInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            btnAdminConfirm.click();
+        }
+    });
+
+    function logoutAdmin() {
+        if (confirm("¿Cerrar sesión de administrador?")) {
+            isAdmin = false;
+            localStorage.setItem('supermotos_isAdmin', 'false');
+            checkAdminState();
+            filterAndRender();
+        }
+    }
+
+    function checkAdminState() {
+        const statusBar = document.getElementById('admin-status-bar');
+        const accessBtn = document.getElementById('btn-admin-access');
+
+        if (isAdmin) {
+            accessBtn.innerHTML = "<span>⚙️ Admin (Activo)</span>";
+            statusBar.style.display = "flex";
+            statusBar.className = "admin-bar";
+            statusBar.innerHTML = `
+                <div class="admin-info">
+                    <span class="admin-badge">Admin</span>
+                    <span>Sesión activa. Modifica precios o nombres.</span>
+                </div>
+                <div class="admin-actions-group">
+                    <button id="btn-open-wizard" class="accent-btn" style="padding: 6px 12px; border-radius:6px; font-weight:700; border:none; cursor:pointer;">Asistente de Precios</button>
+                    <button id="btn-admin-logout" class="secondary-btn" style="padding: 6px 12px; border-radius:6px; font-weight:700; cursor:pointer;">Cerrar Sesión</button>
+                </div>
+            `;
+            
+            document.getElementById('btn-open-wizard').addEventListener('click', openWizard);
+            document.getElementById('btn-admin-logout').addEventListener('click', logoutAdmin);
+        } else {
+            accessBtn.innerHTML = "<span>⚙️ Admin</span>";
+            statusBar.style.display = "none";
+        }
+    }
+
+    // ---- 10. WIZARD / ASISTENTE DE PRECIOS ----
+    const wizardModal = document.getElementById('wizard-modal');
+    const btnWizardClose = document.getElementById('btn-wizard-close');
+    const wizardFilterNoPrice = document.getElementById('wizard-filter-noprice');
+    const wizardTokenInput = document.getElementById('wizard-token-input');
+    const btnSaveToken = document.getElementById('btn-save-token');
+    const btnWizardPrev = document.getElementById('btn-wizard-prev');
+    const btnWizardNext = document.getElementById('btn-wizard-next');
+    const btnWizardSave = document.getElementById('btn-wizard-save');
+    const wizardPriceInput = document.getElementById('wizard-price-input');
+
+    function openWizard() {
+        const savedToken = localStorage.getItem('supermotos_github_token') || '';
+        wizardTokenInput.value = savedToken;
+
+        buildWizardProductsList();
+
+        wizardCurrentIndex = 0;
+        wizardModal.style.display = "flex";
+        renderWizardItem();
+    }
+
+    function buildWizardProductsList() {
+        let baseList = allProducts.filter(p => !deletedProductIds.has(p.id));
+        
+        if (activeCategory !== 'all') {
+            baseList = baseList.filter(p => p.category === activeCategory);
+        }
+
+        if (searchQuery) {
+            const queryWords = cleanString(searchQuery).split(/\s+/).filter(Boolean);
+            baseList = baseList.filter(p => {
+                const textToSearch = cleanString(
+                    p.description + " " + (p.category || "") + " " + (p.filenames || []).join(" ")
+                );
+                return queryWords.every(word => textToSearch.includes(word));
+            });
+        }
+
+        if (wizardFilterNoPrice.checked) {
+            baseList = baseList.filter(p => !p.price || p.price === 0);
+        }
+
+        wizardFilteredProducts = baseList;
+    }
+
+    function renderWizardItem() {
+        const cardContainer = document.getElementById('wizard-card-container');
+        const progressText = document.getElementById('wizard-progress-text');
+        const progressFill = document.getElementById('wizard-progress-fill');
+
+        if (wizardFilteredProducts.length === 0) {
+            cardContainer.style.display = "none";
+            progressText.textContent = "0 de 0 completados";
+            progressFill.style.width = "0%";
+            btnWizardPrev.disabled = true;
+            btnWizardNext.disabled = true;
+            
+            // Mostrar mensaje de vacío
+            let emptyMsg = document.getElementById('wizard-empty-msg');
+            if (!emptyMsg) {
+                emptyMsg = document.createElement('div');
+                emptyMsg.id = 'wizard-empty-msg';
+                emptyMsg.style.cssText = 'padding: 40px; text-align:center; color: var(--text-muted);';
+                emptyMsg.innerHTML = `
+                    <div style="font-size: 48px; margin-bottom:10px;">🎉</div>
+                    <h4>¡No hay repuestos pendientes!</h4>
+                    <p style="font-size: 13px; margin-top: 8px;">Todos los productos filtrados ya tienen precio asignado.</p>
+                `;
+                cardContainer.parentNode.insertBefore(emptyMsg, cardContainer.nextSibling);
+            } else {
+                emptyMsg.style.display = "block";
+            }
+            return;
+        }
+
+        cardContainer.style.display = "block";
+        const emptyMsg = document.getElementById('wizard-empty-msg');
+        if (emptyMsg) emptyMsg.style.display = "none";
+
+        btnWizardPrev.disabled = false;
+        btnWizardNext.disabled = false;
+
+        if (wizardCurrentIndex < 0) wizardCurrentIndex = 0;
+        if (wizardCurrentIndex >= wizardFilteredProducts.length) wizardCurrentIndex = wizardFilteredProducts.length - 1;
+
+        const p = wizardFilteredProducts[wizardCurrentIndex];
+        
+        document.getElementById('wizard-img').src = p.images[0];
+        document.getElementById('wizard-img').onerror = function() {
+            this.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="%23333" stroke-width="1"><rect width="20" height="20" x="2" y="2" rx="2"/></svg>`;
+        };
+        document.getElementById('wizard-desc').textContent = p.description;
+        document.getElementById('wizard-category').textContent = p.category;
+        
+        wizardPriceInput.value = p.price && p.price > 0 ? p.price : '';
+        
+        setTimeout(() => wizardPriceInput.focus(), 100);
+
+        const progressPercent = ((wizardCurrentIndex + 1) / wizardFilteredProducts.length) * 100;
+        progressFill.style.width = `${progressPercent}%`;
+        progressText.textContent = `Repuesto ${wizardCurrentIndex + 1} de ${wizardFilteredProducts.length}`;
+    }
+
+    function saveCurrentWizardPrice() {
+        if (wizardFilteredProducts.length === 0) return;
+        const p = wizardFilteredProducts[wizardCurrentIndex];
+        const val = parseInt(wizardPriceInput.value.trim()) || 0;
+        p.price = val;
+        
+        localStorage.setItem('supermotos_catalog_draft', JSON.stringify(allProducts));
+    }
+
+    function nextWizardItem() {
+        saveCurrentWizardPrice();
+        if (wizardCurrentIndex < wizardFilteredProducts.length - 1) {
+            wizardCurrentIndex++;
+            renderWizardItem();
+        } else {
+            alert("Has llegado al último repuesto de la lista. Haz clic en 'Guardar y Publicar' para subir los cambios a internet.");
+        }
+    }
+
+    function prevWizardItem() {
+        saveCurrentWizardPrice();
+        if (wizardCurrentIndex > 0) {
+            wizardCurrentIndex--;
+            renderWizardItem();
+        }
+    }
+
+    async function saveAndPublishCatalog() {
+        const token = wizardTokenInput.value.trim();
+        if (!token) {
+            alert("Por favor ingresa tu Token de Acceso Personal de GitHub (PAT).");
+            wizardTokenInput.focus();
+            return;
+        }
+
+        localStorage.setItem('supermotos_github_token', token);
+        saveCurrentWizardPrice();
+
+        const originalText = btnWizardSave.textContent;
+        btnWizardSave.textContent = "Publicando...";
+        btnWizardSave.disabled = true;
+
+        const repo = "ccamilor/Catalogo_SuperMotos";
+        const path = "Antigravity_prueba1/catalogo.json";
+        const url = `https://api.github.com/repos/${repo}/contents/${path}`;
+
+        let sha = "";
+        try {
+            const getRes = await fetch(url, {
+                headers: {
+                    "Authorization": `token ${token}`
+                }
+            });
+            if (getRes.ok) {
+                const data = await getRes.json();
+                sha = data.sha;
+            } else {
+                const errData = await getRes.json();
+                throw new Error(errData.message || "Error al obtener SHA");
+            }
+        } catch (e) {
+            console.error(e);
+            alert(`Error de conexión con GitHub: ${e.message}\nVerifica tu Token y permisos.`);
+            btnWizardSave.textContent = originalText;
+            btnWizardSave.disabled = false;
+            return;
+        }
+
+        const content = JSON.stringify(allProducts, null, 2);
+        const base64Content = btoa(unescape(encodeURIComponent(content)));
+
+        const body = {
+            message: "Actualización de precios desde Asistente de Catálogo Web",
+            content: base64Content,
+            sha: sha,
+            branch: "main"
+        };
+
+        try {
+            const putRes = await fetch(url, {
+                method: "PUT",
+                headers: {
+                    "Authorization": `token ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (putRes.ok) {
+                alert("¡Precios publicados con éxito en internet! La web de los clientes se actualizará automáticamente en 1 o 2 minutos.");
+                localStorage.removeItem('supermotos_catalog_draft');
+                filterAndRender();
+                updateCartUI();
+                wizardModal.style.display = "none";
+            } else {
+                const errData = await putRes.json();
+                alert(`GitHub rechazó la actualización: ${errData.message}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error al enviar la actualización a GitHub.");
+        } finally {
+            btnWizardSave.textContent = originalText;
+            btnWizardSave.disabled = false;
+        }
+    }
+
+    btnWizardClose.addEventListener('click', () => {
+        saveCurrentWizardPrice();
+        wizardModal.style.display = "none";
+        filterAndRender();
+    });
+
+    wizardFilterNoPrice.addEventListener('change', () => {
+        saveCurrentWizardPrice();
+        buildWizardProductsList();
+        wizardCurrentIndex = 0;
+        renderWizardItem();
+    });
+
+    btnSaveToken.addEventListener('click', () => {
+        const token = wizardTokenInput.value.trim();
+        localStorage.setItem('supermotos_github_token', token);
+        alert("Token guardado localmente en este navegador.");
+    });
+
+    document.getElementById('btn-toggle-token-settings').addEventListener('click', () => {
+        const group = document.getElementById('token-input-group');
+        group.style.display = group.style.display === "none" ? "flex" : "none";
+    });
+
+    btnWizardPrev.addEventListener('click', prevWizardItem);
+    btnWizardNext.addEventListener('click', nextWizardItem);
+    btnWizardSave.addEventListener('click', saveAndPublishCatalog);
+
+    wizardPriceInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            nextWizardItem();
+        }
+    });
+
     loadCatalog();
+
 });
