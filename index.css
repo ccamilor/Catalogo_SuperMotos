@@ -1023,6 +1023,7 @@ body {
     border-radius: 16px;
     max-width: 480px;
     width: 100%;
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1062,6 +1063,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    overflow-y: auto;
 }
 
 .edit-modal-body label {
@@ -1078,7 +1080,8 @@ body {
     letter-spacing: 0.5px;
 }
 
-.edit-modal-body input[type="text"] {
+.edit-modal-body input[type="text"],
+.edit-modal-body input[type="number"] {
     background-color: var(--bg-main);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -1089,7 +1092,8 @@ body {
     transition: var(--transition-fast);
 }
 
-.edit-modal-body input[type="text"]:focus {
+.edit-modal-body input[type="text"]:focus,
+.edit-modal-body input[type="number"]:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px var(--primary-glow);
@@ -1100,7 +1104,8 @@ body {
     border-radius: 8px;
     overflow: hidden;
     background-color: var(--bg-main);
-    aspect-ratio: 1;
+    max-height: 220px;
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
