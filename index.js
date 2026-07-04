@@ -941,7 +941,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnWizardSave.disabled = true;
 
         const repo = "ccamilor/Catalogo_SuperMotos";
-        const path = "Antigravity_prueba1/catalogo.json";
+        const path = "catalogo.json";
         const url = `https://api.github.com/repos/${repo}/contents/${path}`;
 
         let sha = "";
