@@ -1,0 +1,27 @@
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# Chat original (es muy pesado, regenerable localmente con parse_chat.py)
+chat-source/
