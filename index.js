@@ -166,6 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (editedProducts[p.id]) {
                 if (editedProducts[p.id].description) p.description = editedProducts[p.id].description;
                 if (editedProducts[p.id].category) p.category = editedProducts[p.id].category;
+                if (editedProducts[p.id].price !== undefined) p.price = editedProducts[p.id].price;
             }
         });
     }
@@ -512,6 +513,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${[...new Set(allProducts.map(p => p.category).filter(Boolean))].map(c => `<option value="${c}">`).join('')}
                         </datalist>
                     </label>
+                    <label>
+                        <span>Precio (COP)</span>
+                        <input type="number" id="edit-price" value="${product.price && product.price > 0 ? product.price : ''}" placeholder="A convenir">
+                    </label>
                     <div class="edit-modal-image-preview">
                         <img src="${product.images[0]}" alt="">
                     </div>
@@ -535,14 +540,21 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.querySelector('.edit-save-btn').addEventListener('click', () => {
             const newName = document.getElementById('edit-name').value.trim();
             const newCat = document.getElementById('edit-category').value.trim();
+            const newPrice = parseInt(document.getElementById('edit-price').value.trim()) || 0;
             if (newName) {
                 editedProducts[product.id] = {
                     description: newName,
-                    category: newCat || product.category
+                    category: newCat || product.category,
+                    price: newPrice
                 };
                 product.description = newName;
                 product.category = newCat || product.category;
+                product.price = newPrice;
                 product.is_unknown = false;
+                
+                // Guardar borrador en localStorage para no perder cambios locales
+                localStorage.setItem('supermotos_catalog_draft', JSON.stringify(allProducts));
+                
                 saveUserOverrides();
                 filterAndRender();
                 updateCartUI();
