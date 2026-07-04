@@ -116,48 +116,92 @@ def apply_overrides(products, overrides):
     return products
 
 
+def load_rename_map():
+    rename_map = {}
+    if os.path.exists(output_json):
+        try:
+            with open(output_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    for item in data:
+                        filenames = item.get("filenames", [])
+                        orig_filenames = item.get("original_filenames", [])
+                        for idx, fn in enumerate(filenames):
+                            orig_fn = orig_filenames[idx] if idx < len(orig_filenames) else fn
+                            rename_map[orig_fn] = fn
+        except Exception as e:
+            print(f"Advertencia: No se pudo leer catalogo.json para el mapa de renombres: {e}")
+    return rename_map
+
+
 def parse_chat():
-    if not os.path.exists(chat_path):
-        print(f"Error: No se encontró el archivo del chat en: {chat_path}")
+    chat_source_root = os.path.join(script_dir, "chat-source")
+    if not os.path.exists(chat_source_root):
+        print(f"Error: No se encontró la carpeta raíz de chats en: {chat_source_root}")
         return
+
+    # Buscar todos los archivos .txt de chat recursivamente en chat-source/
+    chat_files = []
+    for root, dirs, files in os.walk(chat_source_root):
+        for file in files:
+            if file.endswith(".txt"):
+                chat_files.append(os.path.join(root, file))
+
+    if not chat_files:
+        print(f"Error: No se encontraron archivos .txt de chat en: {chat_source_root}")
+        return
+
+    # Cargar mapa de archivos ya renombrados anteriormente para mantener la consistencia
+    rename_map = load_rename_map()
+    if rename_map:
+        print(f"Cargado mapa de renombres previos con {len(rename_map)} asociaciones.")
 
     pattern = re.compile(r"^\d{1,2}/\d{1,2}/\d{4},\s\d{1,2}:\d{2}\s-\s([^:]+):\s\u200e?([^\(]+)\s\(archivo adjunto\)")
 
-    with open(chat_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
     products = []
-    current_product = None
 
-    for i, line in enumerate(lines):
-        line = line.strip()
-        match = pattern.match(line)
-        if match:
-            if current_product:
-                products.append(current_product)
+    for chat_path in chat_files:
+        print(f"Procesando archivo de chat: {os.path.basename(chat_path)}")
+        try:
+            with open(chat_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            print(f"Error al leer {chat_path}: {e}")
+            continue
 
-            sender = match.group(1)
-            filename = match.group(2).strip()
+        current_product = None
 
-            current_product = {
-                "id": len(products) + 1,
-                "sender": sender,
-                "filename": filename,
-                "description": ""
-            }
-        elif current_product:
-            if re.match(r"^\d{1,2}/\d{1,2}/\d{4},\s\d{1,2}:\d{2}\s-\s", line):
-                products.append(current_product)
-                current_product = None
-            else:
-                if line:
-                    if current_product["description"]:
-                        current_product["description"] += "\n" + line
-                    else:
-                        current_product["description"] = line
+        for i, line in enumerate(lines):
+            line = line.strip()
+            # Quitar marcas de formato invisibles de WhatsApp si existen al inicio
+            line = line.lstrip('\ufeff\u200e\u200f')
+            match = pattern.match(line)
+            if match:
+                if current_product:
+                    products.append(current_product)
 
-    if current_product:
-        products.append(current_product)
+                sender = match.group(1)
+                filename = match.group(2).strip()
+
+                current_product = {
+                    "id": len(products) + 1,
+                    "sender": sender,
+                    "filename": filename,
+                    "description": ""
+                }
+            elif current_product:
+                if re.match(r"^\d{1,2}/\d{1,2}/\d{4},\s\d{1,2}:\d{2}\s-\s", line):
+                    products.append(current_product)
+                    current_product = None
+                else:
+                    if line:
+                        if current_product["description"]:
+                            current_product["description"] += "\n" + line
+                        else:
+                            current_product["description"] = line
+
+        if current_product:
+            products.append(current_product)
 
     EXCLUDED_FILES = {"IMG-20260504-WA0000.jpg"}
 
@@ -167,19 +211,22 @@ def parse_chat():
 
     for p in products:
         filename = p["filename"]
-        found = False
-        actual_filename = filename
-
+        
+        # Saltamos archivos PDF en esta sección de imágenes del catálogo
         if filename.lower().endswith(".pdf"):
             continue
 
         if filename in EXCLUDED_FILES:
             continue
 
-        if filename in files_in_dir:
+        # Usar el nombre renombrado si ya existe en el mapa de renombres previos
+        actual_filename = rename_map.get(filename, filename)
+        found = False
+
+        if actual_filename in files_in_dir:
             found = True
         else:
-            cleaned_filename = re.sub(r'[^\w\.\-\s]', '', filename)
+            cleaned_filename = re.sub(r'[^\w\.\-\s]', '', actual_filename)
             if cleaned_filename in files_in_dir:
                 actual_filename = cleaned_filename
                 found = True
@@ -201,12 +248,15 @@ def parse_chat():
                     "category": get_category(desc),
                     "is_unknown": is_unknown,
                     "images": [image_path],
-                    "filenames": [actual_filename]
+                    "filenames": [actual_filename],
+                    "original_filenames": [filename]
                 }
             else:
+                # Agrupar múltiples fotos en el mismo producto
                 if image_path not in grouped_products[clean_key]["images"]:
                     grouped_products[clean_key]["images"].append(image_path)
                     grouped_products[clean_key]["filenames"].append(actual_filename)
+                    grouped_products[clean_key]["original_filenames"].append(filename)
                 if is_unknown:
                     grouped_products[clean_key]["is_unknown"] = True
 
@@ -215,19 +265,27 @@ def parse_chat():
     overrides = load_overrides()
     final_products = apply_overrides(final_products, overrides)
 
+    # Re-asignar IDs secuenciales
+    for idx, p in enumerate(final_products):
+        p["id"] = idx + 1
+
     with open(output_json, "w", encoding="utf-8") as f:
         json.dump(final_products, f, ensure_ascii=False, indent=2)
 
     print("=" * 60)
-    print("PROCESO FINALIZADO")
+    print("PROCESO FINALIZADO CON ÉXITO")
     print("=" * 60)
-    print(f"Total de adjuntos leídos del chat:        {len(products)}")
+    print(f"Total de chats procesados:                {len(chat_files)}")
+    print(f"Total de adjuntos leídos:                 {len(products)}")
     print(f"Productos únicos agrupados:               {len(final_products)}")
-    print(f"Adjuntos sin descripcion (omitidos):     {skipped_no_desc}")
+    print(f"Adjuntos sin descripción (omitidos):      {skipped_no_desc}")
     print(f"Overrides aplicados:                      {len(overrides)}")
-    print(f"Archivo JSON guardado en:                {output_json}")
+    print(f"Archivo JSON guardado en:                 {output_json}")
+    print("=" * 60)
+    print("[OK] PASO SIGUIENTE: Ejecuta 'python rename_images.py'")
     print("=" * 60)
 
 
 if __name__ == "__main__":
     parse_chat()
+

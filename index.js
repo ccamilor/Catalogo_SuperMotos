@@ -11,6 +11,20 @@ document.addEventListener('DOMContentLoaded', () => {
         showEditMode: true
     };
 
+    // Helper para formatear nombres de archivo en la UI
+    function formatDisplayFilename(filename, productId) {
+        if (!filename) return '';
+        const isWhatsapp = /^IMG-\d{8}-WA\d{4}\.(jpg|jpeg|png)$/i.test(filename);
+        if (isWhatsapp) {
+            return `Ref: #${productId}`;
+        }
+        let nameWithoutExt = filename.substring(0, filename.lastIndexOf('.')) || filename;
+        let cleanName = nameWithoutExt.replace(/-/g, ' ');
+        cleanName = cleanName.replace(/\s(\d+)$/, ' · foto $1');
+        return `Ref: ${cleanName.charAt(0).toUpperCase() + cleanName.slice(1)}`;
+    }
+
+
     // ---- ESTADO DE LA APLICACIÓN ----
     let allProducts = [];
     let filteredProducts = [];
@@ -310,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="card-content">
                     <div class="product-info">
                         <h3 class="product-name" title="${product.description}">${product.description}</h3>
-                        <p class="product-meta-text">Archivo: ${mainFilename}</p>
+                        <p class="product-meta-text">${formatDisplayFilename(mainFilename, product.id)}</p>
                     </div>
                     <div class="card-actions">
                         <button class="add-to-cart-btn">
@@ -413,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${thumbHtml}
                         <div class="cart-item-info">
                             <h4 class="cart-item-name">${product.description}</h4>
-                            <p class="cart-item-meta">${product.category} | ${mainFilename}</p>
+                            <p class="cart-item-meta">${product.category} | ${formatDisplayFilename(mainFilename, product.id)}</p>
                         </div>
                         <button class="remove-cart-item" title="Remover">&times;</button>
                     `;
@@ -535,11 +549,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const total = images.length;
         if (total > 1) {
-            lightboxFilename.innerHTML = `Archivo: ${filenames[currentLightboxImageIndex]} <br> <span class="gallery-counter">Foto ${currentLightboxImageIndex + 1} de ${total}</span>`;
+            lightboxFilename.innerHTML = `${formatDisplayFilename(filenames[currentLightboxImageIndex], currentLightboxProduct.id)} <br> <span class="gallery-counter">Foto ${currentLightboxImageIndex + 1} de ${total}</span>`;
             btnPrev.style.display = 'block';
             btnNext.style.display = 'block';
         } else {
-            lightboxFilename.textContent = `Archivo: ${filenames[currentLightboxImageIndex]}`;
+            lightboxFilename.textContent = formatDisplayFilename(filenames[currentLightboxImageIndex], currentLightboxProduct.id);
             btnPrev.style.display = 'none';
             btnNext.style.display = 'none';
         }
