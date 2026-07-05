@@ -25,3 +25,6 @@ env/
 
 # Chat original (es muy pesado, regenerable localmente con parse_chat.py)
 chat-source/
+
+# Backups de imágenes originales sin procesar (locales)
+assets/images_originales_backup/
