@@ -87,6 +87,25 @@ python -m http.server 8000
 ## Stack técnico
 
 - HTML + CSS + JavaScript vanilla
-- Python (solo para el parser del chat)
+- Python (para el parser y el procesamiento de imágenes)
 - PWA: manifest + service worker
 - Sin frameworks, sin build step
+
+## Cómo quitar el fondo de las imágenes
+
+El proyecto cuenta con un script de procesamiento de imágenes con Inteligencia Artificial (`quitar_fondo.py`) para limpiar el fondo de las fotos en lote.
+
+```bash
+python quitar_fondo.py
+```
+
+* **Funcionamiento:** Utiliza el modelo de alta precisión `isnet-general-use` de la librería `rembg`.
+* **Configuración:** Por defecto, aplica un fondo blanco sólido a las siluetas recortadas y guarda el archivo en formato `.jpg` para conservar los nombres de archivo originales y asegurar compatibilidad directa.
+* **Respaldo:** Las imágenes originales antes de procesar se guardan en la carpeta `assets/images_originales_backup/` (excluida del control de versiones en `.gitignore` para no saturar el repositorio).
+
+## Próximas Características / Roadmap
+
+- [ ] **Solucionar carrito de compras:** Corregir errores en la lógica interna detectados recientemente.
+- [ ] **Cambiar a color corporativo:** Adaptar los estilos visuales a la marca corporativa de Súper Motos.
+- [ ] **Ponerle el logo oficial:** Agregar el logo oficial de la marca al encabezado.
+
