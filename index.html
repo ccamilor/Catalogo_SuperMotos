@@ -225,8 +225,35 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('SW registrado:', reg.scope))
+                    .then(reg => {
+                        console.log('SW registrado:', reg.scope);
+                        
+                        // Si hay un service worker esperando/instalado al cargar
+                        if (reg.waiting) {
+                            console.log('Nuevo SW en espera. Forzando activación.');
+                            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        }
+
+                        reg.addEventListener('updatefound', () => {
+                            const newWorker = reg.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    console.log('Nueva versión detectada. Se aplicará al reiniciar o recargar.');
+                                }
+                            });
+                        });
+                    })
                     .catch(err => console.error('SW error:', err));
+            });
+
+            // Detectar cuando el nuevo SW toma el control y recargar la página inmediatamente
+            let refreshing = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (!refreshing) {
+                    refreshing = true;
+                    console.log('Nuevo Service Worker activo. Recargando página...');
+                    window.location.reload();
+                }
             });
         }
     </script>
